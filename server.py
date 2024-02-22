@@ -1,5 +1,6 @@
+import os
 import asyncio
-import uvicorn
+# import uvicorn
 from fastapi.requests import Request
 from typing import Optional, Annotated
 from fastapi import FastAPI, APIRouter
@@ -14,8 +15,10 @@ from sqlalchemy import desc
 from sqlalchemy.future import select
 import datetime
 from uvicorn import Server, Config
-from aioredis import client
+# from aioredis import client
+from dotenv import load_dotenv
 
+load_dotenv()
 
 message_route = APIRouter()
 
@@ -36,7 +39,9 @@ class UserBodyAll(UserBodyRequestToDB):
 
 
 # создание движка для асинхронного взаимодействия с базой, а так-же создание создание асинхронной сессии
-async_db_engine = create_async_engine("sqlite+aiosqlite:///server.db")
+password = os.getenv('passw')
+user = os.getenv('user')
+async_db_engine = create_async_engine(f"postgresql+asyncpg://{user}:{password}@127.0.0.1:5432/postgres")
 async_session = async_sessionmaker(async_db_engine, expire_on_commit=False)
 
 
