@@ -3,3 +3,5 @@ uvicorn
 sqlalchemy
 aiosqlite
 aiohttp
+asyncpg
+python-dotenv==1.0.0

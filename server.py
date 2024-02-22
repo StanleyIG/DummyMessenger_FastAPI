@@ -51,7 +51,7 @@ async_session = async_sessionmaker(async_db_engine, expire_on_commit=False)
 #         return session
 
 
-# # создание модели сообщений
+# создание модели сообщений
 class Base(DeclarativeBase):
     @declared_attr
     def __tablename__(cls):
@@ -82,6 +82,7 @@ class MessageRepository:
             # cls.new_message = new_message
             session.add(new_message)
             await session.commit()
+            # получение 10-ти последних сообщений
             query = select(Messages).filter(
                 Messages.name == new_message.name).order_by(Messages.id).limit(10)
             result = await session.execute(query)
