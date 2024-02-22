@@ -21,10 +21,19 @@ async_db_engine = create_async_engine("sqlite+aiosqlite:///server.db")
 async_session = async_sessionmaker(async_db_engine, expire_on_commit=False)
 
 
+# async def get_async_session():
+#     """функция, которая вернет async_session"""
+#     async with async_session() as session:
+#         yield session
+
 async def get_async_session():
-    """функция, которая вернет async_session"""
-    async with async_session() as session:
-        yield session
+    """функция, которая вернет объект сессии"""
+    session = async_session()
+    try:
+        async with session as s:
+            yield s
+    finally:
+        await s.close()
 
 
 class Model(DeclarativeBase):
@@ -70,31 +79,10 @@ async def add_message(user_post: Annotated[UserBodyRequestToDB, Depends()],
     db.add(new_message)
     await db.commit()
     async with db as session:
-        query = select(Messages).order_by(desc(Messages.id)).limit(11)
+        query = select(Messages).filter(Messages.name == new_message.name).order_by(desc(Messages.id)).limit(10)
         result = await session.execute(query)
         last_ten_messages = result.scalars().all()
-    return last_ten_messages[1: len(last_ten_messages) + 1]
-
-# или так
-# @message_route.post('/add-message')
-# async def add_message(user_post: Annotated[UserBodyRequestToDB, Depends()],
-#                       db: AsyncSession = Depends(get_async_session)):
-#     new_message = Messages(name=user_post.name, text=user_post.text)
-#     db.add(new_message)
-#     await db.commit()
-
-#     async with db as session:
-#         # Получаем ID только что добавленного сообщения
-#         new_message_id = new_message.id
-
-#         # Выполняем запрос для получения последних 10 сообщений исключая только что добавленное
-#         query = select(Messages).filter(Messages.id != new_message_id).order_by(desc(Messages.id)).limit(10)
-#         result = await session.execute(query)
-#         last_ten_messages = result.scalars().all()
-
-#         # Выводит тип последних 10 сообщений, чтобы убедиться, что все в порядке
-
-#     return last_ten_messages
+    return last_ten_messages
 
 
 # функция выполняет процесс создания приложения и запуск зависимостей, в частности создание базы
