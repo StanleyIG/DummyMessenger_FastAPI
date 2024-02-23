@@ -39,9 +39,11 @@ class UserBodyAll(UserBodyRequestToDB):
 
 
 # создание движка для асинхронного взаимодействия с базой, а так-же создание создание асинхронной сессии
-password = os.getenv('passw')
-user = os.getenv('user')
-async_db_engine = create_async_engine(f"postgresql+asyncpg://{user}:{password}@127.0.0.1:5432/postgres")
+password = os.getenv('PASSWORD')
+user = os.getenv('USER')
+db_name = os.getenv('DB')
+service = 'db'
+async_db_engine = create_async_engine(f"postgresql+asyncpg://{user}:{password}@127.0.0.1:5432/{db_name}")
 async_session = async_sessionmaker(async_db_engine, expire_on_commit=False)
 
 
@@ -84,7 +86,7 @@ class MessageRepository:
             await session.commit()
             # получение 10-ти последних сообщений
             query = select(Messages).filter(
-                Messages.name == new_message.name).order_by(Messages.id).limit(10)
+                Messages.name == new_message.name).order_by(desc(Messages.id)).limit(10)
             result = await session.execute(query)
             last_ten_messages = result.scalars().all()
             messages = [UserBodyAll.model_validate(
