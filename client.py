@@ -118,3 +118,4 @@ async def send_requests(texts):
 if __name__ == '__main__':
     texts = get_fish_texts()
     asyncio.run(send_requests(texts))
+    input('Enter для выхода')
