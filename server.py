@@ -124,8 +124,7 @@ class MessageRepository:
                 messages = [UserBodyAll.model_validate(
                 message) for message in last_ten_messages]
                 
-            return {'messages': messages, 'count_messages': MessagesCount.model_validate(last_ten_messages[0]),
-                    'message': last_ten_messages[0].text}
+            return {'messages': messages, 'count_messages': cnt + 1}
 
 
 # роут для добавления сообщения в базу данных
