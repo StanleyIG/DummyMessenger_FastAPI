@@ -100,12 +100,11 @@ class MessageRepository:
                 await session.flush()
                 await session.commit()
                 # Обновление счётчика
-                if cnt == 0:
-                    message_query = select(Messages).filter(
+                message_query = select(Messages).filter(
                         Messages.name == new_message.name)
-                    message_query = await session.execute(message_query)
-                    message_query = message_query.scalars().all()
-                    cnt = len(message_query) - 1
+                message_query = await session.execute(message_query)
+                message_query = message_query.scalars().all()
+                cnt = len(message_query) - 1
             
                 stmt = (
                     update(Messages)
