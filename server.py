@@ -11,8 +11,9 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, declared_attr
 from sqlalchemy import Column, Integer, String, DateTime, Text
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
-from sqlalchemy import desc
-from sqlalchemy.future import select
+from sqlalchemy import desc, and_
+# from sqlalchemy.future import select
+from sqlalchemy import update, select, func
 import datetime
 from uvicorn import Server, Config
 # from aioredis import client
@@ -38,12 +39,19 @@ class UserBodyAll(UserBodyRequestToDB):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MessagesCount(BaseModel):
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # создание движка для асинхронного взаимодействия с базой, а так-же создание создание асинхронной сессии
 password = os.getenv('PASSWORD')
 user = os.getenv('USER')
 db_name = os.getenv('DB')
 service = 'db'
-async_db_engine = create_async_engine(f"postgresql+asyncpg://{user}:{password}@127.0.0.1:5432/{db_name}")
+async_db_engine = create_async_engine(
+    f"postgresql+asyncpg://{user}:{password}@127.0.0.1:5432/{db_name}")
 async_session = async_sessionmaker(async_db_engine, expire_on_commit=False)
 
 
@@ -65,6 +73,7 @@ class Messages(Base):
     name = Column(String)
     text = Column(String(1000), nullable=True)
     date = Column(DateTime, default=datetime.datetime.utcnow)
+    count = Column(Integer, default=0)
 
 
 async def create_db():
@@ -75,23 +84,48 @@ async def create_db():
 
 # Запросы к базе через класс MessageRepository(паттерн репозиторий)
 class MessageRepository:
+    lock = asyncio.Lock()
+
     @classmethod
     async def add_message_get_lst_ten(cls, user_post: UserBodyRequestToDB):
-        async with async_session() as session:
-            # !метод model_dump используется в последнем обновлении pydantic 2.6.1, в более ранних версиях может не работать!
-            user_dict: dict = user_post.model_dump()
-            new_message = Messages(**user_dict)
-            # cls.new_message = new_message
-            session.add(new_message)
-            await session.commit()
-            # получение 10-ти последних сообщений
-            query = select(Messages).filter(
-                Messages.name == new_message.name).order_by(desc(Messages.id)).limit(10)
-            result = await session.execute(query)
-            last_ten_messages = result.scalars().all()
-            messages = [UserBodyAll.model_validate(
+        cnt = 0
+        # блокировка доступ к обновлению счетчика, чтобы избежать ошибок 
+        # при одновременном доступе к этой переменной.
+        async with cls.lock:
+            async with async_session() as session:
+                # !метод model_dump используется в последнем обновлении pydantic 2.6.1, в более ранних версиях может не работать!
+                user_dict: dict = user_post.model_dump()
+                new_message = Messages(**user_dict)
+                session.add(new_message)
+                await session.flush()
+                await session.commit()
+                # Обновление счётчика
+                if cnt == 0:
+                    message_query = select(Messages).filter(
+                        Messages.name == new_message.name)
+                    message_query = await session.execute(message_query)
+                    message_query = message_query.scalars().all()
+                    cnt = len(message_query) - 1
+            
+                stmt = (
+                    update(Messages)
+                    .where(Messages.id == new_message.id)
+                    .where(Messages.name == new_message.name)
+                    .values(count=cnt + 1)
+                    )
+                
+                await session.execute(stmt)
+                await session.commit()
+                # получение 10-ти последних сообщений
+                query = select(Messages).filter(
+                    Messages.name == new_message.name).order_by(desc(Messages.id)).limit(10)
+                result = await session.execute(query)
+                last_ten_messages = result.scalars().all()
+                messages = [UserBodyAll.model_validate(
                 message) for message in last_ten_messages]
-            return {'messages': messages, 'count_messages': len(messages)}
+                
+            return {'messages': messages, 'count_messages': MessagesCount.model_validate(last_ten_messages[0]),
+                    'message': last_ten_messages[0].text}
 
 
 # роут для добавления сообщения в базу данных
@@ -101,6 +135,20 @@ async def add_message(user_post: Annotated[UserBodyRequestToDB, Depends()]):
     last_ten_mess = await MessageRepository.add_message_get_lst_ten(user_post)
     return last_ten_mess
 
+
+# session.add(stmt)
+    # last_message_query = select(Messages).filter(
+    #     Messages.name == new_message.name).order_by(desc(Messages.id))
+    # last_message = await session.execute(last_message_query)
+    # last_message = last_message.scalars().first()
+    # print(last_message.id)
+    # if last_message:
+    #     stmt = (
+    #         update(Messages)
+    #         .where(Messages.id == last_message.id)
+    #         .where(Messages.name == new_message.name)
+    #         .values(count=Messages.count + 1)
+    #     )
 
 # @message_route.post('/add-message')
 # async def add_message(user_post: Annotated[UserBodyRequestToDB, Depends()],
@@ -117,7 +165,7 @@ async def add_message(user_post: Annotated[UserBodyRequestToDB, Depends()]):
 
 
 # функция выполняет процесс создания приложения и запуск зависимостей, в частности создание базы
-app_ports = [5001, 5002, 5003]  # Порты, на которых будут запущены сервера
+app_ports = [5001, 5002]  # Порты, на которых будут запущены сервера
 
 
 def create_app():
@@ -152,7 +200,7 @@ async def run():
     apps = []
     for cfg in app_ports:
         config = Config("server:app", host="127.0.0.1",
-                        port=cfg)
+                        port=cfg, reload=True)
         server = MyServer(config=config)
         apps.append(server.run())
     return await asyncio.gather(*apps)
