@@ -134,38 +134,8 @@ async def add_message(user_post: Annotated[UserBodyRequestToDB, Depends()]):
     return last_ten_mess
 
 
-# session.add(stmt)
-    # last_message_query = select(Messages).filter(
-    #     Messages.name == new_message.name).order_by(desc(Messages.id))
-    # last_message = await session.execute(last_message_query)
-    # last_message = last_message.scalars().first()
-    # print(last_message.id)
-    # if last_message:
-    #     stmt = (
-    #         update(Messages)
-    #         .where(Messages.id == last_message.id)
-    #         .where(Messages.name == new_message.name)
-    #         .values(count=Messages.count + 1)
-    #     )
-
-# @message_route.post('/add-message')
-# async def add_message(user_post: Annotated[UserBodyRequestToDB, Depends()],
-#                       db: AsyncSession = Depends(get_async_session)):
-#     # Тут взаимодействие с базой данных:
-#     user_dict: dict = user_post.model_dump()
-#     new_message = Messages(**user_dict)
-#     db.add(new_message)
-#     await db.commit()
-#     query = select(Messages).filter(Messages.name == new_message.name).order_by(desc(Messages.id)).limit(10)
-#     result = await db.execute(query)
-#     last_ten_messages = result.scalars().all()
-#     return last_ten_messages
-
-
 # функция выполняет процесс создания приложения и запуск зависимостей, в частности создание базы
 app_ports = [5001, 5002]  # Порты, на которых будут запущены сервера
-
-
 def create_app():
     """создание приложения, подключение роута(ов) и запуск зависимостей"""
     @asynccontextmanager
