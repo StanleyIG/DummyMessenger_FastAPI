@@ -90,9 +90,9 @@ async def get_resp(url, session, user, texts):
 async def send_requests(texts):
     async with aiohttp.ClientSession() as session:
         tasks = []
-        for _ in range(15):
+        for _ in range(50):
             user = random.choice(USERS)
-            for _ in range(20):
+            for _ in range(100):
                 url = random.choice(SERVER_URLS)
                 task = asyncio.create_task(get_resp(url, session, user, texts))
                 tasks.append(task)
