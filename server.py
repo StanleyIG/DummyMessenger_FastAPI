@@ -90,51 +90,42 @@ class MessageRepository:
     @classmethod
     async def add_message_get_lst_ten(cls, user_post: UserBodyRequestToDB):
         cnt = 0
-        # блокировка доступ к обновлению счетчика, чтобы избежать ошибок 
+        # блокировка доступ к обновлению счетчика, чтобы избежать ошибок
         # при одновременном доступе к этой переменной.
         async with cls.lock:
             async with async_session() as session:
+
                 # !метод model_dump используется в последнем обновлении pydantic 2.6.1, в более ранних версиях может не работать!
-                # Запись в базу
+                # Получение списка сообщений для вычисления колличества у каждого пользователя и запись в базу
                 user_dict: dict = user_post.model_dump()
+                message_query = select(Messages).filter(
+                    Messages.name == user_dict.get('name'))
+                message_query = await session.execute(message_query)
+                message_query = message_query.scalars().all()
+                cnt = len(message_query)
                 new_message = Messages(**user_dict)
+                new_message.count = cnt + 1
                 session.add(new_message)
                 await session.flush()
                 await session.commit()
-                
-                # Обновление счётчика
+
+                # получение 10-ти последних сообщений
                 # Пока 1 корутина ждёт тут, другие записывают new_message,
                 # и и могут делать это быстрее чем выполняется crud запрос
                 # на чтение данных. В данном случае выполнение запросов на запись и чтения
                 # в контексте блокировки async with cls.lock выполнения корутин
                 # разрешает эту проблему, что приводит к атомарности запросов как на чтение так и на запись.
                 # Так-же отсутсвие блокировки создаёт условие гонки данных Race condition.
-                message_query = select(Messages).filter(
-                        Messages.name == new_message.name)
-                message_query = await session.execute(message_query)
-                message_query = message_query.scalars().all()
-                # print(f'Длина queryset: {len(message_query)}')
-                cnt = len(message_query) - 1
-                # print(f'Значение счётчика: {cnt}')
-            
-                stmt = (
-                    update(Messages)
-                    .where(Messages.id == new_message.id)
-                    .where(Messages.name == new_message.name)
-                    .values(count=cnt + 1)
-                    )
-                
-                await session.execute(stmt)
-                await session.commit()
-                # получение 10-ти последних сообщений
+                # Это можно проверить закоментировав строчку async with cls.lock и убедиться в беспорядочности
+                # обновления значения счётчика в поле count
                 query = select(Messages).filter(
                     Messages.name == new_message.name).order_by(desc(Messages.id)).limit(10)
                 result = await session.execute(query)
                 last_ten_messages = result.scalars().all()
                 messages = [UserBodyAll.model_validate(
-                message) for message in last_ten_messages]
-                
-        return {'messages': messages, 'count_messages': cnt + 1}
+                    message) for message in last_ten_messages]
+
+        return {'messages': messages, 'count_messages': MessagesCount.model_validate(last_ten_messages[0])}
 
 
 # роут для добавления сообщения в базу данных
@@ -146,6 +137,8 @@ async def add_message(user_post: Annotated[UserBodyRequestToDB, Depends()]):
 
 # функция выполняет процесс создания приложения и запуск зависимостей, в частности создание базы
 app_ports = [5001, 5002, 5003]  # Порты, на которых будут запущены сервера
+
+
 def create_app():
     """создание приложения, подключение роута(ов) и запуск зависимостей"""
     @asynccontextmanager
@@ -161,6 +154,7 @@ def create_app():
     app.include_router(message_route)
 
     return app
+
 
 app = create_app()
 
@@ -186,4 +180,3 @@ async def run():
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     loop.run_until_complete(run())
-    
