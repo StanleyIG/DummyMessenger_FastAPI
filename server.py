@@ -84,6 +84,7 @@ async def create_db():
 
 # Запросы к базе через класс MessageRepository(паттерн репозиторий)
 class MessageRepository:
+    """Класс предосталяет метод(ы) для выполнения запросов к базе"""
     lock = asyncio.Lock()
 
     @classmethod
@@ -94,17 +95,27 @@ class MessageRepository:
         async with cls.lock:
             async with async_session() as session:
                 # !метод model_dump используется в последнем обновлении pydantic 2.6.1, в более ранних версиях может не работать!
+                # Запись в базу
                 user_dict: dict = user_post.model_dump()
                 new_message = Messages(**user_dict)
                 session.add(new_message)
                 await session.flush()
                 await session.commit()
+                
                 # Обновление счётчика
+                # Пока 1 корутина ждёт тут, другие записывают new_message,
+                # и и могут делать это быстрее чем выполняется crud запрос
+                # на чтение данных. В данном случае выполнение запросов на запись и чтения
+                # в контексте блокировки async with cls.lock выполнения корутин
+                # разрешает эту проблему, что приводит к атомарности запросов как на чтение так и на запись.
+                # Так-же отсутсвие блокировки создаёт условие гонки данных Race condition.
                 message_query = select(Messages).filter(
                         Messages.name == new_message.name)
                 message_query = await session.execute(message_query)
                 message_query = message_query.scalars().all()
+                # print(f'Длина queryset: {len(message_query)}')
                 cnt = len(message_query) - 1
+                # print(f'Значение счётчика: {cnt}')
             
                 stmt = (
                     update(Messages)
@@ -123,19 +134,18 @@ class MessageRepository:
                 messages = [UserBodyAll.model_validate(
                 message) for message in last_ten_messages]
                 
-            return {'messages': messages, 'count_messages': cnt + 1}
+        return {'messages': messages, 'count_messages': cnt + 1}
 
 
 # роут для добавления сообщения в базу данных
 @message_route.post('/add-message')
 async def add_message(user_post: Annotated[UserBodyRequestToDB, Depends()]):
-    # new_message = Messages(name=user_post.name, text=user_post.text)
     last_ten_mess = await MessageRepository.add_message_get_lst_ten(user_post)
     return last_ten_mess
 
 
 # функция выполняет процесс создания приложения и запуск зависимостей, в частности создание базы
-app_ports = [5001, 5002]  # Порты, на которых будут запущены сервера
+app_ports = [5001, 5002, 5003]  # Порты, на которых будут запущены сервера
 def create_app():
     """создание приложения, подключение роута(ов) и запуск зависимостей"""
     @asynccontextmanager
@@ -152,13 +162,12 @@ def create_app():
 
     return app
 
-
 app = create_app()
 
 
-# сылка на источник https://gist.github.com/tenuki/ff67f87cba5c4c04fd08d9c800437477
-
 class MyServer(Server):
+    """сылка на источник https://gist.github.com/tenuki/ff67f87cba5c4c04fd08d9c800437477
+    Класс Сервера, для асинхронного запуска и запросов на несколько реплик сервера"""
     async def run(self, sockets=None):
         self.config.setup_event_loop()
         return await self.serve(sockets=sockets)
@@ -173,8 +182,8 @@ async def run():
         apps.append(server.run())
     return await asyncio.gather(*apps)
 
-# сылка на источник https://gist.github.com/tenuki/ff67f87cba5c4c04fd08d9c800437477
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     loop.run_until_complete(run())
+    
